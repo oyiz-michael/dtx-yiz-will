@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dtx-app
+  labels:
+    app: dtx-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dtx-app
+  template:
+    metadata:
+      labels:
+        app: dtx-app
+    spec:
+      containers:
+      - name: dtx-app
+        image: dtx-app:v1
+        imagePullPolicy: Never
+        env:
+        - name: APP_VERSION
+          value: "v1"
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dtx-app-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: dtx-app
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dtx-app-broken
+  labels:
+    app: dtx-app-broken
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dtx-app-broken
+  template:
+    metadata:
+      labels:
+        app: dtx-app-broken
+    spec:
+      containers:
+      - name: dtx-app-broken
+        image: dtx-app:v2
+        imagePullPolicy: Never
+        env:
+        - name: APP_VERSION
+          value: "v2-broken"
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: dtx-app-broken-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: dtx-app-broken
