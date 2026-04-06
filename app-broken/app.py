@@ -1,10 +1,12 @@
 from flask import Flask, jsonify
+from prometheus_flask_exporter import PrometheusMetrics
 import os
 import random
 import time
 import threading
 
 app = Flask(__name__)
+metrics = PrometheusMetrics(app)
 
 VERSION = os.getenv("APP_VERSION", "v2-broken")
 

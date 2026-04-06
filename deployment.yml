@@ -13,6 +13,10 @@ spec:
     metadata:
       labels:
         app: dtx-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: dtx-app
@@ -41,6 +45,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dtx-app-service
+  labels:
+    app: dtx-app
 spec:
   ports:
   - port: 80
@@ -67,6 +73,10 @@ spec:
     metadata:
       labels:
         app: dtx-app-broken
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: dtx-app-broken
@@ -96,6 +106,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dtx-app-broken-service
+  labels:
+    app: dtx-app-broken
 spec:
   ports:
   - port: 80

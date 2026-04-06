@@ -1,0 +1,37 @@
+# ServiceMonitor for dtx-app (working app)
+# Prometheus scrapes metrics from http://dtx-app-service/metrics
+# Verify locally: http://localhost:8084/metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dtx-app-monitor
+  labels:
+    release: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: dtx-app
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+
+---
+
+# ServiceMonitor for dtx-app-broken (broken app)
+# Prometheus scrapes metrics from http://dtx-app-broken-service/metrics
+# Verify locally: http://localhost:8085/metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dtx-app-broken-monitor
+  labels:
+    release: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: dtx-app-broken
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
