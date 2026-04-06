@@ -125,181 +125,154 @@ spec:
 
 ---
 # =============================================================================
-# PROMTAIL - Collects logs from all pods and sends to Loki
+# FLUENT BIT - Collects logs from all pods and sends to Loki
 # =============================================================================
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: promtail
+  name: fluent-bit
   namespace: monitoring
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: promtail
+  name: fluent-bit
 rules:
 - apiGroups: [""]
-  resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
-  verbs: ["get", "watch", "list"]
+  resources: ["namespaces", "pods", "pods/logs", "nodes", "nodes/proxy"]
+  verbs: ["get", "list", "watch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: promtail
+  name: fluent-bit
 subjects:
 - kind: ServiceAccount
-  name: promtail
+  name: fluent-bit
   namespace: monitoring
 roleRef:
   kind: ClusterRole
-  name: promtail
+  name: fluent-bit
   apiGroup: rbac.authorization.k8s.io
 
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: promtail-config
+  name: fluent-bit-config
   namespace: monitoring
 data:
-  promtail.yaml: |
-    server:
-      log_level: info
-      http_listen_port: 3101
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Log_Level     info
+        Daemon        off
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
 
-    clients:
-      - url: http://loki:3100/loki/api/v1/push
+    [INPUT]
+        Name              tail
+        Tag               kube.*
+        Path              /var/log/containers/*.log
+        Parser            cri
+        DB                /var/log/fluent-bit/flb_kube.db
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
 
-    positions:
-      filename: /run/promtail/positions.yaml
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix     kube.var.log.containers.
+        Merge_Log           On
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude Off
+        Labels              On
+        Annotations         Off
 
-    scrape_configs:
-      - job_name: kubernetes-pods
-        pipeline_stages:
-          - cri: {}
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels:
-              - __meta_kubernetes_pod_controller_name
-            regex: ([0-9a-z-.]+?)(-[0-9a-f]{8,10})?
-            action: replace
-            target_label: __tmp_controller_name
-          - source_labels:
-              - __meta_kubernetes_pod_label_app_kubernetes_io_name
-              - __meta_kubernetes_pod_label_app
-              - __tmp_controller_name
-              - __meta_kubernetes_pod_name
-            regex: ^;*([^;]+)(;.*)?$
-            action: replace
-            target_label: app
-          - source_labels:
-              - __meta_kubernetes_pod_label_app_kubernetes_io_instance
-              - __meta_kubernetes_pod_label_instance
-            regex: ^;*([^;]+)(;.*)?$
-            action: replace
-            target_label: instance
-          - source_labels:
-              - __meta_kubernetes_pod_label_app_kubernetes_io_component
-              - __meta_kubernetes_pod_label_component
-            regex: ^;*([^;]+)(;.*)?$
-            action: replace
-            target_label: component
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_node_name
-            target_label: node_name
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_namespace
-            target_label: namespace
-          - action: replace
-            replacement: $1
-            separator: /
-            source_labels:
-              - namespace
-              - app
-            target_label: job
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_name
-            target_label: pod
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_container_name
-            target_label: container
-          - action: replace
-            replacement: /var/log/pods/*$1/*.log
-            separator: /
-            source_labels:
-              - __meta_kubernetes_pod_uid
-              - __meta_kubernetes_pod_container_name
-            target_label: __path__
-          - action: replace
-            regex: true/(.*)
-            replacement: /var/log/pods/*$1/*.log
-            separator: /
-            source_labels:
-              - __meta_kubernetes_pod_annotationpresent_kubernetes_io_config_hash
-              - __meta_kubernetes_pod_annotation_kubernetes_io_config_hash
-              - __meta_kubernetes_pod_container_name
-            target_label: __path__
+    [OUTPUT]
+        Name                 loki
+        Match                kube.*
+        Host                 loki.monitoring.svc.cluster.local
+        Port                 3100
+        Labels               job=fluent-bit
+        Label_Keys           $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['labels']['app']
+        Remove_Keys          kubernetes,stream
+        Auto_Kubernetes_Labels Off
+        Line_Format          json
+
+  parsers.conf: |
+    [PARSER]
+        Name        cri
+        Format      regex
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
 
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: promtail
+  name: fluent-bit
   namespace: monitoring
   labels:
-    app: promtail
+    app: fluent-bit
 spec:
   selector:
     matchLabels:
-      app: promtail
+      app: fluent-bit
   template:
     metadata:
       labels:
-        app: promtail
+        app: fluent-bit
     spec:
-      serviceAccountName: promtail
+      serviceAccountName: fluent-bit
       containers:
-      - name: promtail
-        image: grafana/promtail:3.1.0
-        args:
-        - -config.file=/etc/promtail/promtail.yaml
+      - name: fluent-bit
+        image: fluent/fluent-bit:3.1
         ports:
-        - containerPort: 3101
+        - containerPort: 2020
           name: http
         volumeMounts:
         - name: config
-          mountPath: /etc/promtail
-        - name: run
-          mountPath: /run/promtail
-        - name: pods-logs
-          mountPath: /var/log/pods
+          mountPath: /fluent-bit/etc
+        - name: varlog
+          mountPath: /var/log
           readOnly: true
         - name: containers-logs
           mountPath: /var/lib/docker/containers
           readOnly: true
+        - name: fluent-bit-db
+          mountPath: /var/log/fluent-bit
+        resources:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
       tolerations:
       - effect: NoSchedule
         operator: Exists
       volumes:
       - name: config
         configMap:
-          name: promtail-config
-      - name: run
+          name: fluent-bit-config
+      - name: varlog
         hostPath:
-          path: /run/promtail
-      - name: pods-logs
-        hostPath:
-          path: /var/log/pods
+          path: /var/log
       - name: containers-logs
         hostPath:
           path: /var/lib/docker/containers
+      - name: fluent-bit-db
+        hostPath:
+          path: /var/log/fluent-bit
 
 ---
 # =============================================================================
@@ -412,3 +385,30 @@ spec:
     name: otlp-http
   selector:
     app: tempo
+
+---
+# =============================================================================
+# GRAFANA DATASOURCES - Auto-configure Loki and Tempo in Grafana
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-loki-tempo
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  loki-tempo-datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: http://tempo:3200
+      uid: tempo
+      isDefault: false
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      isDefault: false

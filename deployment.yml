@@ -25,6 +25,10 @@ spec:
         env:
         - name: APP_VERSION
           value: "v1"
+        - name: OTEL_SERVICE_NAME
+          value: "dtx-app"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
         ports:
         - containerPort: 5000
         readinessProbe:
@@ -85,6 +89,10 @@ spec:
         env:
         - name: APP_VERSION
           value: "v2-broken"
+        - name: OTEL_SERVICE_NAME
+          value: "dtx-app-broken"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
         ports:
         - containerPort: 5000
         readinessProbe:
