@@ -44,12 +44,12 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
-    # LLM (Amazon Bedrock — auth via IRSA, no API key needed)
+    # LLM (Anthropic SDK)
     # -------------------------------------------------------------------------
-    aws_region: str = Field(default="eu-west-2", alias="AWS_REGION")
-    bedrock_model_id: str = Field(
-        default="anthropic.claude-sonnet-4-20250514-v1:0",
-        alias="BEDROCK_MODEL_ID",
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    anthropic_model_id: str = Field(
+        default="claude-haiku-4-5-20251001",
+        alias="ANTHROPIC_MODEL_ID",
     )
     llm_max_tokens: int = Field(default=1024, alias="LLM_MAX_TOKENS")
     llm_timeout: int = Field(default=30, alias="LLM_TIMEOUT")
@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     # Output targets
     # -------------------------------------------------------------------------
     slack_webhook_url: str = Field(default="", alias="SLACK_WEBHOOK_URL")
+    sns_phone_number: str = Field(default="", alias="SNS_PHONE_NUMBER")  # E.164 format, e.g. +15551234567
     grafana_api_key: str = Field(default="", alias="GRAFANA_API_KEY")
     grafana_user: str = Field(default="admin", alias="GRAFANA_USER")
     grafana_password: str = Field(default="", alias="GRAFANA_PASSWORD")

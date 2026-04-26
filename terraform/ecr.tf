@@ -45,3 +45,16 @@ resource "aws_ecr_repository" "ai_monitor" {
 output "ai_monitor_ecr_url" {
   value = aws_ecr_repository.ai_monitor.repository_url
 }
+
+resource "aws_ecr_repository" "ai_observability_agent" {
+  name                 = "ai-observability-agent"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+output "ai_observability_agent_ecr_url" {
+  value = aws_ecr_repository.ai_observability_agent.repository_url
+}

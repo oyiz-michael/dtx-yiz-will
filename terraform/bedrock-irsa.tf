@@ -18,10 +18,28 @@ resource "aws_iam_policy" "ai_agent_bedrock" {
       {
         Effect = "Allow"
         Action = [
+          "ses:SendEmail",
+          "ses:SendRawEmail",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "bedrock:InvokeModel",
+          "bedrock:Converse",
         ]
         Resource = [
-          "arn:aws:bedrock:eu-west-2::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0"
+          "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0",
+          "arn:aws:bedrock:us-east-1:427613144745:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0",
+          "arn:aws:bedrock:*::foundation-model/amazon.nova-pro-v1:0",
+          "arn:aws:bedrock:us-east-1:427613144745:inference-profile/us.amazon.nova-pro-v1:0",
+          "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0",
+          "arn:aws:bedrock:us-east-1:427613144745:inference-profile/us.amazon.nova-lite-v1:0",
+          "arn:aws:bedrock:*::foundation-model/meta.llama3-3-70b-instruct-v1:0",
+          "arn:aws:bedrock:us-east-1:427613144745:inference-profile/us.meta.llama3-3-70b-instruct-v1:0",
+          "arn:aws:bedrock:*::foundation-model/meta.llama3-1-70b-instruct-v1:0",
+          "arn:aws:bedrock:us-east-1:427613144745:inference-profile/us.meta.llama3-1-70b-instruct-v1:0"
         ]
       }
     ]

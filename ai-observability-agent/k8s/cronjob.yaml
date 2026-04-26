@@ -14,7 +14,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 2
-      activeDeadlineSeconds: 120     # hard kill after 2 minutes
+      activeDeadlineSeconds: 240     # hard kill after 4 minutes (allows 3 throttle retries)
       template:
         metadata:
           labels:
@@ -37,7 +37,7 @@ spec:
             - name: agent
               # Replace <ACCOUNT_ID> with your AWS account ID:
               #   427613144745.dkr.ecr.us-east-1.amazonaws.com/ai-observability-agent:v1
-              image: 427613144745.dkr.ecr.us-east-1.amazonaws.com/ai-observability-agent:v1
+              image: 427613144745.dkr.ecr.us-east-1.amazonaws.com/ai-observability-agent:v2
               imagePullPolicy: Always
 
               securityContext:
@@ -61,6 +61,11 @@ spec:
 
               # Sensitive values from Secret
               env:
+                - name: ANTHROPIC_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ai-observability-agent-secrets
+                      key: ANTHROPIC_API_KEY
                 - name: GRAFANA_PASSWORD
                   valueFrom:
                     secretKeyRef:

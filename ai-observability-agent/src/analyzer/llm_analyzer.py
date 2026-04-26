@@ -1,8 +1,7 @@
 """LLM-powered anomaly analyzer.
 
 Formats collected signals into a structured prompt, calls Claude via
-Amazon Bedrock Runtime (boto3), and parses the JSON response into a
-typed AnalysisResult. Authentication is via IRSA — no API key required.
+the Anthropic SDK, and parses the JSON response into a typed AnalysisResult.
 """
 
 from __future__ import annotations
@@ -11,9 +10,13 @@ import asyncio
 import json
 from datetime import datetime, timezone
 
-import boto3
+
+import anthropic
 import structlog
-from botocore.exceptions import ClientError, EndpointResolutionError
+
+# Add SNS and Email output imports
+from ..outputs import sns as sns_output
+from ..outputs import email as email_output
 
 from ..config import Settings
 from ..models.signals import (
@@ -158,72 +161,77 @@ def _build_user_message(signals: CollectedSignals) -> str:
 # ---------------------------------------------------------------------------
 
 
+_RETRY_DELAYS = [5, 15, 30]  # seconds between retries on throttle/timeout
+
+
 async def analyse(signals: CollectedSignals, settings: Settings) -> AnalysisResult:
-    """Call Claude via Amazon Bedrock with the collected signals and return a typed AnalysisResult."""
+    """Call Claude via Anthropic SDK with retry on rate limit."""
     user_message = _build_user_message(signals)
     log.debug("analyzer.prompt_built", message_chars=len(user_message))
 
-    bedrock = boto3.client(
-        "bedrock-runtime",
-        region_name=settings.aws_region,
-    )
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    payload = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": settings.llm_max_tokens,
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_message}],
-    }
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
+        if delay:
+            log.warning("analyzer.retry", attempt=attempt, delay_s=delay)
+            await asyncio.sleep(delay)
+        try:
+            response = await asyncio.to_thread(
+                client.messages.create,
+                model=settings.anthropic_model_id,
+                max_tokens=settings.llm_max_tokens,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            raw_text = response.content[0].text
 
-    try:
-        response = await asyncio.to_thread(
-            bedrock.invoke_model,
-            modelId=settings.bedrock_model_id,
-            contentType="application/json",
-            accept="application/json",
-            body=json.dumps(payload),
-        )
-        response_body = json.loads(response["body"].read())
-        raw_text = response_body["content"][0]["text"]
+            log.debug(
+                "analyzer.llm_response",
+                attempt=attempt,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
 
-        usage = response_body.get("usage", {})
-        log.debug(
-            "analyzer.llm_response",
-            input_tokens=usage.get("input_tokens"),
-            output_tokens=usage.get("output_tokens"),
-        )
+            result = AnalysisResult.from_llm_text(raw_text)
+            log.info(
+                "analyzer.done",
+                severity=result.severity,
+                anomalies=len(result.anomalies),
+                recommendations=len(result.recommendations),
+            )
+            # Send SMS notification via SNS
+            try:
+                sns_output.send(result, settings)
+            except Exception as exc:
+                log.error("sns.send_failed", error=str(exc))
+            # Send email notification via SES
+            try:
+                email_output.send(result, settings)
+            except Exception as exc:
+                log.error("email.send_failed", error=str(exc))
+            return result
 
-        result = AnalysisResult.from_llm_text(raw_text)
-        log.info(
-            "analyzer.done",
-            severity=result.severity,
-            anomalies=len(result.anomalies),
-            recommendations=len(result.recommendations),
-        )
-        return result
-
-    except ClientError as exc:
-        error_code = exc.response["Error"]["Code"]
-        if error_code in ("ModelTimeoutException", "ThrottlingException"):
-            log.error("analyzer.bedrock_throttle_or_timeout", code=error_code)
+        except anthropic.RateLimitError as exc:
+            log.warning("analyzer.rate_limit", attempt=attempt, error=str(exc))
+            last_exc = exc
+            continue  # retry
+        except anthropic.AuthenticationError as exc:
+            log.error("analyzer.auth_error", error=str(exc))
             return AnalysisResult(
-                summary=f"Bedrock call failed ({error_code}). Will retry next run.",
+                summary=f"Anthropic authentication failed — check ANTHROPIC_API_KEY: {exc}",
                 severity="INFO",
             )
-        log.error("analyzer.bedrock_client_error", code=error_code, error=str(exc))
-        return AnalysisResult(
-            summary=f"Bedrock ClientError ({error_code}): {exc}",
-            severity="INFO",
-        )
-    except EndpointResolutionError as exc:
-        log.error("analyzer.bedrock_endpoint_error", error=str(exc))
-        return AnalysisResult(
-            summary=f"Could not resolve Bedrock endpoint: {exc}",
-            severity="INFO",
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.error("analyzer.unexpected_error", error=str(exc))
-        return AnalysisResult(
-            summary=f"Unexpected error during analysis: {exc}",
-            severity="INFO",
-        )
+        except Exception as exc:  # noqa: BLE001
+            log.error("analyzer.unexpected_error", error=str(exc))
+            return AnalysisResult(
+                summary=f"Unexpected error during analysis: {exc}",
+                severity="INFO",
+            )
+
+    # All retries exhausted
+    log.error("analyzer.all_retries_exhausted", attempts=len(_RETRY_DELAYS) + 1)
+    return AnalysisResult(
+        summary=f"Anthropic rate limited after {len(_RETRY_DELAYS) + 1} attempts. Will retry next run.",
+        severity="INFO",
+    )
