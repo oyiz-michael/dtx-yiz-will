@@ -1,0 +1,154 @@
+# DTX Apps deployment - adapted for EKS with ECR images
+# Replace <ACCOUNT_ID> with your AWS account ID before applying
+# e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/dtx-app:v1
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dtx-app
+  labels:
+    app: dtx-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dtx-app
+  template:
+    metadata:
+      labels:
+        app: dtx-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - dtx-app-broken
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: dtx-app
+        image: 427613144745.dkr.ecr.us-east-1.amazonaws.com/dtx-app:v1
+        imagePullPolicy: Always
+        env:
+        - name: APP_VERSION
+          value: "v1"
+        - name: OTEL_SERVICE_NAME
+          value: "dtx-app"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dtx-app-service
+  labels:
+    app: dtx-app
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: dtx-app
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dtx-app-broken
+  labels:
+    app: dtx-app-broken
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dtx-app-broken
+  template:
+    metadata:
+      labels:
+        app: dtx-app-broken
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - dtx-app
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: dtx-app-broken
+        image: 427613144745.dkr.ecr.us-east-1.amazonaws.com/dtx-app-broken:v1
+        imagePullPolicy: Always
+        env:
+        - name: APP_VERSION
+          value: "v2-broken"
+        - name: OTEL_SERVICE_NAME
+          value: "dtx-app-broken"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: dtx-app-broken-service
+  labels:
+    app: dtx-app-broken
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: dtx-app-broken

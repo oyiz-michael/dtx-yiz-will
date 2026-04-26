@@ -1,0 +1,21 @@
+##  A ReferenceGrant is a resource you place in the target namespace (where the service lives) 
+# that says "I explicitly allow routes from namespace X to reference resources here."
+
+#How it works
+#The ReferenceGrant lives in dev and grants permission inward — the team that owns dev is saying "yes, 
+#outes from nginx-gateway can use our services."
+
+
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-ngf-to-dev
+  namespace: dev              # lives in the TARGET namespace
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: nginx-gateway  # which namespace is ALLOWED to reference
+  to:
+  - group: ""
+    kind: Service             # what resource type is being referenced

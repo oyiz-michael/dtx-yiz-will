@@ -1,0 +1,35 @@
+# Terraform state - contains sensitive data (account IDs, ARNs, secrets)
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+
+# Terraform working directory
+.terraform/
+.terraform.lock.hcl
+
+# Terraform variable files - may contain secrets
+*.tfvars
+*.tfvars.json
+
+# Terraform crash logs
+crash.log
+crash.*.log
+
+# Terraform override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# AWS credentials
+*.pem
+*.key
+.aws/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

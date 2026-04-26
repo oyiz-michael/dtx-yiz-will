@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-observability-agent
+  namespace: monitoring
+  labels:
+    app: ai-observability-agent
+    component: ai-monitor
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid          # skip if previous run still active
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120     # hard kill after 2 minutes
+      template:
+        metadata:
+          labels:
+            app: ai-observability-agent
+        spec:
+          restartPolicy: Never
+          serviceAccountName: ai-observability-agent   # IRSA — grants Bedrock access
+
+          # ----------------------------------------------------------------
+          # Security context — non-root, read-only root filesystem
+          # ----------------------------------------------------------------
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+
+          containers:
+            - name: agent
+              # Replace <ACCOUNT_ID> with your AWS account ID:
+              #   427613144745.dkr.ecr.us-east-1.amazonaws.com/ai-observability-agent:v1
+              image: 427613144745.dkr.ecr.us-east-1.amazonaws.com/ai-observability-agent:v1
+              imagePullPolicy: Always
+
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+
+              # Non-sensitive config from ConfigMap
+              envFrom:
+                - configMapRef:
+                    name: ai-observability-agent-config
+
+              # Sensitive values from Secret
+              env:
+                - name: GRAFANA_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ai-observability-agent-secrets
+                      key: GRAFANA_PASSWORD
+                - name: SLACK_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: ai-observability-agent-secrets
+                      key: SLACK_WEBHOOK_URL
+                      optional: true
+                - name: GRAFANA_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ai-observability-agent-secrets
+                      key: GRAFANA_API_KEY
+                      optional: true

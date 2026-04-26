@@ -1,0 +1,55 @@
+# HTTPRoutes for DTX apps through NGF gateway
+# Access via: curl -H "Host: dtx.example.com" http://<ELB-HOSTNAME>/
+#             curl -H "Host: dtx.example.com" http://<ELB-HOSTNAME>/broken
+
+---
+# ReferenceGrant: allow HTTPRoutes in default namespace to ref services in default
+# (needed because the Gateway lives in nginx-gateway namespace)
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-ngf-to-default
+  namespace: default
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: nginx-gateway
+  to:
+  - group: ""
+    kind: Service
+
+---
+# Route for dtx-app (working app)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dtx-app
+spec:
+  parentRefs:
+  - name: ngf-gateway
+    namespace: nginx-gateway
+    sectionName: http
+  hostnames:
+  - "dtx.example.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /broken
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /
+    backendRefs:
+    - name: dtx-app-broken-service
+      port: 80
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: dtx-app-service
+      port: 80

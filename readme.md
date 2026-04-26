@@ -110,6 +110,15 @@ kubectl -n monitoring port-forward svc/tempo 3200:3200
 - Broken app: http://localhost:8085/
 - Working app metrics: http://localhost:8084/metrics
 - Broken app metrics: http://localhost:8085/metrics
+- Working app UI playground: http://localhost:8084/ui
+- Broken app UI playground: http://localhost:8085/ui
+
+Iterative trace endpoints:
+
+- Working journey endpoint: `http://localhost:8084/journey?steps=6`
+- Broken chaos endpoint: `http://localhost:8085/chaos?steps=6&failure_rate=0.5`
+
+Both apps return `trace_id` in JSON and also include `X-Trace-Id` in response headers for quick trace correlation.
 
 ### B) Prometheus Metrics
 

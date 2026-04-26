@@ -1,0 +1,33 @@
+# ServiceMonitor for dtx-app (working app)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dtx-app-monitor
+  labels:
+    release: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: dtx-app
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+
+---
+
+# ServiceMonitor for dtx-app-broken (broken app)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dtx-app-broken-monitor
+  labels:
+    release: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: dtx-app-broken
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s

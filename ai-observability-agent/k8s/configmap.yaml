@@ -1,0 +1,22 @@
+# Non-sensitive configuration for the AI observability agent.
+# Sensitive values (GRAFANA_PASSWORD) come from the Secret.
+# LLM auth is via IRSA — no API key needed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-observability-agent-config
+  namespace: monitoring
+data:
+  PROMETHEUS_URL: "http://kube-prometheus-kube-prome-prometheus.monitoring.svc:9090"
+  LOKI_URL: "http://loki.monitoring.svc:3100"
+  TEMPO_URL: "http://tempo.monitoring.svc:3200"
+  GRAFANA_URL: "http://kube-prometheus-grafana.monitoring.svc"
+  GRAFANA_USER: "admin"
+  AWS_REGION: "eu-west-2"
+  BEDROCK_MODEL_ID: "anthropic.claude-sonnet-4-20250514-v1:0"
+  LLM_MAX_TOKENS: "1024"
+  LLM_TIMEOUT: "30"
+  HTTP_TIMEOUT: "10"
+  QUERY_LOOKBACK_MINUTES: "5"
+  LOG_LEVEL: "INFO"
+  DRY_RUN: "false"
