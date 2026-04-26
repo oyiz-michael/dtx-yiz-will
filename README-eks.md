@@ -341,7 +341,7 @@ The agent will run cron jobs every 5 minutes. To watch it:
 
 kubectl get jobs -n monitoring -w
 # then check logs:
-kubectl logs -n monitoring -l job-name=ai-agent-claude-test-5
+kubectl logs -n monitoring -l job-name=ai-observability-agent-29620620 
 
 
 ----
