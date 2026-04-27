@@ -236,3 +236,5 @@ dtx-app (healthy): Operating within expected parameters (<1% error rate, ~82MB m
 
 The CronJob only registers a failure when the agent exits `1` — i.e., only on
 `CRITICAL` findings. This can trigger Kubernetes backoff and alerting.
+
+
