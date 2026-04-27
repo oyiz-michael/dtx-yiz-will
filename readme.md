@@ -233,7 +233,7 @@ lsof -i :3200
 
 ## 11. AI Observability Agent
 
-An autonomous AI agent that runs as a Kubernetes CronJob every 5 minutes on the EKS cluster (`cityaura`, `us-east-1`). It queries Prometheus, Loki, and Tempo, sends the signals to Claude (Anthropic API), and posts findings to Grafana as annotations.
+An autonomous AI agent that runs as a Kubernetes CronJob every 5 minutes on the EKS cluster (`demo-dtx`, `us-east-1`). It queries Prometheus, Loki, and Tempo, sends the signals to Claude (Anthropic API), and posts findings to Grafana as annotations.
 
 Full documentation: [`ai-observability-agent/README.md`](ai-observability-agent/README.md)
 
@@ -265,7 +265,7 @@ kubectl create secret generic ai-observability-agent-secrets \
   --namespace monitoring \
   --from-literal=ANTHROPIC_API_KEY=<your-key> \
   --from-literal=GRAFANA_PASSWORD=$(aws secretsmanager get-secret-value \
-    --secret-id eks/cityaura/grafana-admin \
+    --secret-id eks/demo-dtx/grafana-admin \
     --query SecretString --output text | jq -r .password) \
   --dry-run=client -o yaml | kubectl apply -f -
 ```

@@ -3,6 +3,6 @@ variable "region" {
 }
 
 variable "name" {
-  default = "cityaura"
+  default = "demo-dtx"
 
 }

@@ -14,8 +14,6 @@ from datetime import datetime, timezone
 import anthropic
 import structlog
 
-# Add SNS and Email output imports
-from ..outputs import sns as sns_output
 from ..outputs import email as email_output
 
 from ..config import Settings
@@ -200,14 +198,9 @@ async def analyse(signals: CollectedSignals, settings: Settings) -> AnalysisResu
                 anomalies=len(result.anomalies),
                 recommendations=len(result.recommendations),
             )
-            # Send SMS notification via SNS
-            try:
-                sns_output.send(result, settings)
-            except Exception as exc:
-                log.error("sns.send_failed", error=str(exc))
             # Send email notification via SES
             try:
-                email_output.send(result, settings)
+                await email_output.send(result, settings)
             except Exception as exc:
                 log.error("email.send_failed", error=str(exc))
             return result

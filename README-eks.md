@@ -1,5 +1,3 @@
-# eks-ngf-gateway
-
 EKS cluster with NGINX Gateway Fabric, DTX observability apps, and full monitoring stack (Prometheus, Grafana, Loki, Tempo).
 
 ## Architecture
@@ -48,7 +46,7 @@ terraform apply
 ```
 
 This creates:
-- EKS cluster "cityaura" with 2× t3.medium SPOT nodes
+- EKS cluster "demo-dtx" with 2× t3.medium SPOT nodes
 - ECR repos: `dtx-app`, `dtx-app-broken`
 - NGF gateway via Helm
 - kube-prometheus-stack (Prometheus + Grafana) via Helm
@@ -59,7 +57,7 @@ This creates:
 ## 3. Connect to the Cluster
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name cityaura
+aws eks update-kubeconfig --region us-east-1 --name demo-dtx
 kubectl get nodes
 ```
 
@@ -187,7 +185,7 @@ curl -H "Host: grafana.example.com" http://ae357ff4a85f24c229107a24709c0598-2012
 Login: `admin` / password from Secrets Manager:
 
 ```bash
-aws secretsmanager get-secret-value --secret-id eks/cityaura/grafana-admin --query SecretString --output text | jq -r .password
+aws secretsmanager get-secret-value --secret-id eks/demo-dtx/grafana-admin --query SecretString --output text | jq -r .password
 ```
 
 ### Port-forward (optional alternatives)
@@ -264,7 +262,7 @@ docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/ai-monitor:v1
 Get the Grafana password and set your Anthropic API key:
 
 ```bash
-GRAFANA_PW=$(aws secretsmanager get-secret-value --secret-id eks/cityaura/grafana-admin --query SecretString --output text | jq -r .password)
+GRAFANA_PW=$(aws secretsmanager get-secret-value --secret-id eks/demo-dtx/grafana-admin --query SecretString --output text | jq -r .password)
 
 kubectl create secret generic ai-monitor-secrets -n monitoring \
   --from-literal=ANTHROPIC_API_KEY=sk-ant-your-key-here \

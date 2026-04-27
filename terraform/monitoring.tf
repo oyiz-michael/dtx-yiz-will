@@ -74,7 +74,7 @@ resource "aws_secretsmanager_secret" "anthropic_api_key" {
 }
 
 # Placeholder - you must set the actual key after terraform apply:
-#   aws secretsmanager put-secret-value --secret-id eks/cityaura/anthropic-api-key --secret-string '{"api_key":"sk-ant-..."}'
+#   aws secretsmanager put-secret-value --secret-id eks/demo-dtx/anthropic-api-key --secret-string '{"api_key":"sk-ant-..."}'
 resource "aws_secretsmanager_secret_version" "anthropic_api_key" {
   secret_id = aws_secretsmanager_secret.anthropic_api_key.id
   secret_string = jsonencode({

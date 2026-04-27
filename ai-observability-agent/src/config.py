@@ -58,7 +58,6 @@ class Settings(BaseSettings):
     # Output targets
     # -------------------------------------------------------------------------
     slack_webhook_url: str = Field(default="", alias="SLACK_WEBHOOK_URL")
-    sns_phone_number: str = Field(default="", alias="SNS_PHONE_NUMBER")  # E.164 format, e.g. +15551234567
     grafana_api_key: str = Field(default="", alias="GRAFANA_API_KEY")
     grafana_user: str = Field(default="admin", alias="GRAFANA_USER")
     grafana_password: str = Field(default="", alias="GRAFANA_PASSWORD")

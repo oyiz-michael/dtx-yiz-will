@@ -25,17 +25,17 @@ MAX_LINES_PER_QUERY = 50
 # LogQL queries
 # ---------------------------------------------------------------------------
 LOG_QUERIES: dict[str, str] = {
-    "recent_errors_broken": '{app="dtx-app-broken"} |~ "(?i)(error|exception|traceback|500)"',
-    "recent_errors_healthy": '{app="dtx-app"} |~ "(?i)(error|exception|traceback|500)"',
-    "oom_warnings": '{app=~"dtx-app.*"} |~ "(?i)(oom|out of memory|killed|evict)"',
+    "recent_errors_broken": '{kubernetes_labels_app="dtx-app-broken"} |~ "(?i)(error|exception|traceback|500)"',
+    "recent_errors_healthy": '{kubernetes_labels_app="dtx-app"} |~ "(?i)(error|exception|traceback|500)"',
+    "oom_warnings": '{kubernetes_labels_app=~"dtx-app.*"} |~ "(?i)(oom|out of memory|killed|evict)"',
 }
 
 # Metric (aggregation) queries — these return a matrix, not log streams
 METRIC_QUERIES: dict[str, str] = {
-    "log_volume_broken": 'sum(count_over_time({app="dtx-app-broken"}[5m]))',
-    "log_volume_healthy": 'sum(count_over_time({app="dtx-app"}[5m]))',
+    "log_volume_broken": 'sum(count_over_time({kubernetes_labels_app="dtx-app-broken"}[5m]))',
+    "log_volume_healthy": 'sum(count_over_time({kubernetes_labels_app="dtx-app"}[5m]))',
     "error_log_volume_broken": (
-        'sum(count_over_time({app="dtx-app-broken"} |~ "(?i)(error|exception)"[5m]))'
+        'sum(count_over_time({kubernetes_labels_app="dtx-app-broken"} |~ "(?i)(error|exception)"[5m]))'
     ),
 }
 
@@ -92,7 +92,8 @@ async def _query_log_stream(
         streams = resp.json().get("data", {}).get("result", [])
 
         for stream in streams:
-            app_label = stream.get("stream", {}).get("app", "unknown")
+            stream_labels = stream.get("stream", {})
+            app_label = stream_labels.get("kubernetes_labels_app") or stream_labels.get("app", "unknown")
             for ts_str, line in stream.get("values", []):
                 clean = _truncate(line.strip())
                 signals.append(

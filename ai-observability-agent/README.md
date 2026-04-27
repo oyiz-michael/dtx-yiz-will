@@ -3,7 +3,7 @@
 An autonomous monitoring agent that collects signals from Prometheus, Loki, and
 Tempo, analyses them via the **Anthropic API** (Claude), and dispatches findings
 to Grafana annotations and Slack — every 5 minutes as a Kubernetes CronJob on
-EKS cluster `cityaura` (us-east-1).
+EKS cluster `demo-dtx` (us-east-1).
 
 ---
 
@@ -24,7 +24,6 @@ CronJob (every 5 min)
                                  llm_analyzer.analyse()
                                   (Claude via Anthropic API)
                                           │
-                                          ├──► sns.send()    (SMS — optional)
                                           ├──► email.send()  (SES — optional)
                                           │
                                           ▼
@@ -51,7 +50,6 @@ ai-observability-agent/
 │   ├── outputs/
 │   │   ├── slack.py          # Block Kit webhook post (or stdout dry-run)
 │   │   ├── grafana.py        # POST /api/annotations
-│   │   ├── sns.py            # SMS via AWS SNS (optional)
 │   │   └── email.py          # Email via AWS SES (optional)
 │   └── models/
 │       └── signals.py        # Pydantic v2 models for all data
@@ -72,7 +70,7 @@ ai-observability-agent/
 
 ## Prerequisites
 
-- AWS EKS cluster `cityaura` (us-east-1) with monitoring namespace
+- AWS EKS cluster `demo-dtx` (us-east-1) with monitoring namespace
 - Monitoring stack deployed: kube-prometheus, Loki, Tempo, Fluent Bit
 - ECR repository: `ai-observability-agent`
 - **Anthropic API key** — the agent calls Claude directly via `anthropic` SDK
@@ -98,7 +96,6 @@ the ConfigMap; secrets come from the Kubernetes Secret.
 | `GRAFANA_PASSWORD` | *(from secret)* | Grafana password for annotations |
 | `GRAFANA_API_KEY` | *(optional)* | Grafana API key (preferred over password) |
 | `SLACK_WEBHOOK_URL` | *(optional)* | Slack incoming webhook URL |
-| `SNS_PHONE_NUMBER` | *(optional)* | E.164 phone number for SMS alerts, e.g. `+15551234567` |
 | `QUERY_LOOKBACK_MINUTES` | `5` | Lookback window for all queries |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DRY_RUN` | `false` | Print output only; skip all external posts |
@@ -133,7 +130,7 @@ kubectl apply -f k8s/serviceaccount.yaml
 
 ```bash
 GRAFANA_PWD=$(aws secretsmanager get-secret-value \
-  --secret-id eks/cityaura/grafana-admin \
+  --secret-id eks/demo-dtx/grafana-admin \
   --query SecretString --output text | jq -r .password)
 
 kubectl create secret generic ai-observability-agent-secrets \
@@ -142,7 +139,6 @@ kubectl create secret generic ai-observability-agent-secrets \
   --from-literal=GRAFANA_PASSWORD="${GRAFANA_PWD}" \
   --from-literal=SLACK_WEBHOOK_URL="" \
   --from-literal=GRAFANA_API_KEY="" \
-  --from-literal=SNS_PHONE_NUMBER="" \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
@@ -227,10 +223,6 @@ dtx-app (healthy): Operating within expected parameters (<1% error rate, ~82MB m
 
 📊 Grafana | 🕐 2026-04-27 09:00 UTC | AI Observability Agent
 ```
-
-### SMS (if `SNS_PHONE_NUMBER` is set)
-
-A concise single-message summary is sent via AWS SNS to the configured E.164 number.
 
 ---
 
