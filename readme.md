@@ -1,6 +1,4 @@
-# DTX App Observability Stack on Kind
-
-Reference: https://kind.sigs.k8s.io/docs/user/quick-start/
+# DTX App Observability Stack
 
 This repository deploys:
 
@@ -9,6 +7,7 @@ This repository deploys:
 - Loki + Fluent Bit for logs
 - Tempo for traces
 - OpenTelemetry tracing from both apps to Tempo
+- AI Observability Agent (autonomous analysis via Claude)
 
 ## Monitoring Components
 
@@ -18,6 +17,7 @@ This repository deploys:
 | Loki + Fluent Bit | Logs | Fluent Bit collects container stdout/stderr and ships to Loki |
 | Tempo | Traces | Receives OTLP traces from both apps |
 | Grafana | Dashboards | Visualizes logs, metrics, and traces |
+| AI Observability Agent | Autonomous analysis | Queries Prometheus, Loki, and Tempo every 5 min; analyses signals with Claude; posts findings to Grafana annotations |
 
 ## 1. Prerequisites
 
@@ -229,39 +229,108 @@ lsof -i :3100
 lsof -i :3200
 ```
 
-kubectl create secret generic ai-observability-agent-secrets -n monitoring \
-  --from-literal=ANTHROPIC_API_KEY=ANTHROPIC_API_KEY_VALUE \
-  --from-literal=GRAFANA_PASSWORD=$(aws secretsmanager get-secret-value --secret-id eks/cityaura/grafana-admin --query SecretString --output text | jq -r .password) \
+---
+
+## 11. AI Observability Agent
+
+An autonomous AI agent that runs as a Kubernetes CronJob every 5 minutes on the EKS cluster (`cityaura`, `us-east-1`). It queries Prometheus, Loki, and Tempo, sends the signals to Claude (Anthropic API), and posts findings to Grafana as annotations.
+
+Full documentation: [`ai-observability-agent/README.md`](ai-observability-agent/README.md)
+
+### Architecture
+
+```
+CronJob (every 5 min)
+       │
+       ▼
+  Collect signals ──► Prometheus metrics
+                      Loki logs
+                      Tempo traces
+                          │
+                          ▼
+                  Claude (Anthropic API)
+                          │
+                          ▼
+              ┌───────────┴───────────┐
+              ▼                       ▼
+        Grafana annotation       Slack (optional)
+```
+
+### Deploy the agent (EKS)
+
+**1. Create the Kubernetes secret:**
+
+```bash
+kubectl create secret generic ai-observability-agent-secrets \
+  --namespace monitoring \
+  --from-literal=ANTHROPIC_API_KEY=<your-key> \
+  --from-literal=GRAFANA_PASSWORD=$(aws secretsmanager get-secret-value \
+    --secret-id eks/cityaura/grafana-admin \
+    --query SecretString --output text | jq -r .password) \
   --dry-run=client -o yaml | kubectl apply -f -
+```
 
----
+**2. Apply config and CronJob:**
 
-kubectl create job ai-agent-claude-test-4 --from=cronjob/ai-observability-agent -n monitoring && sleep 60 && kubectl logs -n monitoring -l job-name=ai-agent-claude-test-4
+```bash
+kubectl apply -f ai-observability-agent/k8s/configmap.yaml
+kubectl apply -f ai-observability-agent/k8s/serviceaccount.yaml
+kubectl apply -f ai-observability-agent/k8s/cronjob.yaml
+```
 
----
+**3. Build and push the image:**
 
-The agent will run cron jobs every 5 minutes. To watch it:
+```bash
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export IMAGE="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/ai-observability-agent:v2"
 
+aws ecr get-login-password --region us-east-1 \
+  | docker login --username AWS --password-stdin \
+    "${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+
+docker build -t "${IMAGE}" ai-observability-agent/
+docker push "${IMAGE}"
+```
+
+### Monitor the agent
+
+```bash
+# Watch CronJob runs
 kubectl get jobs -n monitoring -w
-# then check logs:
-kubectl logs -n monitoring -l job-name=ai-observability-agent-29620620 
 
+# Trigger a manual run immediately
+kubectl create job ai-agent-manual --from=cronjob/ai-observability-agent -n monitoring
 
-----
+# Check logs
+kubectl logs -n monitoring -l job-name=ai-agent-manual
+```
 
-kubectl apply -f "/Users/yizzy/Downloads/GIT/merge project /dtx-yiz-nd-will/ai-observability-agent/k8s/configmap.yaml" && kubectl create job ai-agent-claude-test-5 --from=cronjob/ai-observability-agent -n monitoring && sleep 60 && kubectl logs -n monitoring -l job-name=ai-agent-claude-test-5
-
+### Sample output
 
 ```
-sample output by the agent:
-  RECOMMENDATIONS:
-    1. 🔍 [INVESTIGATION] Review dtx-app-broken code for memory leaks; consider heap dumps or profiling
-    2. ⚠️ [SHORT_TERM] Monitor dtx-app memory trend (currently -0.47 to 1.05 bytes/sec) for stability
-
-  dtx-app (healthy): dtx-app: All traces ok, error_rate 15.6% (within baseline), p95_latency 4.75ms, memory ~39MB per pod with minimal drift, zero restarts. Operating as expected.
-
+🟡  AI OBSERVABILITY REPORT  —  WARNING
 ======================================================================
-{"event": "slack.skipped_no_webhook", "level": "info", "timestamp": "2026-04-26T20:12:32.904614Z"}
-{"annotation_id": 64, "severity": "INFO", "event": "grafana.annotation_posted", "level": "info", "timestamp": "2026-04-26T20:12:32.957009Z"}
-{"severity": "INFO", "event": "agent.done", "level": "info", "timestamp": "2026-04-26T20:12:32.957313Z"}
+  Summary: dtx-app-broken is degraded as expected, but dtx-app shows
+  elevated error rate at 7.81% (baseline <1%).
+
+  ANOMALIES:
+    🟡 [WARNING] dtx-app error rate elevated to 7.81%, above baseline <1%
+       Evidence: error_rate=7.81 vs baseline <1%
+    🟢 [INFO] dtx-app-broken in CrashLoopBackOff — consistent with memory leak design
+
+  RECOMMENDATIONS:
+    1. 🚨 [IMMEDIATE] Investigate dtx-app error rate spike
+    2. ⚠️  [SHORT_TERM] Confirm dtx-app-broken degradation is intentional demo state
+    3. 🔍 [INVESTIGATION] Enable Loki log collection for error context
+
+{"annotation_id": 70, "severity": "WARNING", "event": "grafana.annotation_posted"}
+{"severity": "WARNING", "event": "agent.done"}
 ```
+
+### Severity semantics
+
+| Severity | Meaning | CronJob exit code |
+| --- | --- | --- |
+| `CRITICAL` | Signals significantly exceed known-bad baselines | `1` (registers failure) |
+| `WARNING` | Signals trending bad but within expected ranges | `0` |
+| `INFO` | All signals nominal | `0` |

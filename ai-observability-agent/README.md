@@ -1,9 +1,9 @@
 # AI Observability Agent
 
-A production-quality autonomous monitoring agent that collects signals from
-Prometheus, Loki, and Tempo, analyses them via **Amazon Bedrock** (Claude), and
-dispatches findings to Slack and Grafana annotations — every 5 minutes as a
-Kubernetes CronJob. Authentication to Bedrock is via IRSA — no API keys stored.
+An autonomous monitoring agent that collects signals from Prometheus, Loki, and
+Tempo, analyses them via the **Anthropic API** (Claude), and dispatches findings
+to Grafana annotations and Slack — every 5 minutes as a Kubernetes CronJob on
+EKS cluster `cityaura` (us-east-1).
 
 ---
 
@@ -22,7 +22,10 @@ CronJob (every 5 min)
                                           │
                                           ▼
                                  llm_analyzer.analyse()
-                                  (Claude via Amazon Bedrock / IRSA)
+                                  (Claude via Anthropic API)
+                                          │
+                                          ├──► sns.send()    (SMS — optional)
+                                          ├──► email.send()  (SES — optional)
                                           │
                                           ▼
                                    AnalysisResult
@@ -44,19 +47,21 @@ ai-observability-agent/
 │   │   ├── loki.py           # LogQL stream + metric queries via httpx
 │   │   └── tempo.py          # TraceQL search via httpx
 │   ├── analyzer/
-│   │   └── llm_analyzer.py   # Prompt builder + Bedrock invoke_model + JSON parser
+│   │   └── llm_analyzer.py   # Prompt builder + Anthropic SDK + JSON parser
 │   ├── outputs/
 │   │   ├── slack.py          # Block Kit webhook post (or stdout dry-run)
-│   │   └── grafana.py        # POST /api/annotations
+│   │   ├── grafana.py        # POST /api/annotations
+│   │   ├── sns.py            # SMS via AWS SNS (optional)
+│   │   └── email.py          # Email via AWS SES (optional)
 │   └── models/
 │       └── signals.py        # Pydantic v2 models for all data
 ├── k8s/
 │   ├── cronjob.yaml          # CronJob — every 5 min, backoffLimit=2
 │   ├── configmap.yaml        # Non-sensitive config
-│   ├── secret.yaml           # Template for Grafana/Slack secrets
-│   └── serviceaccount.yaml   # IRSA service account for Bedrock access
+│   ├── secret.yaml           # Template for secrets (API key, Grafana, Slack)
+│   └── serviceaccount.yaml   # Kubernetes service account
 ├── terraform/
-│   └── bedrock-irsa.tf       # IAM role + policy for IRSA
+│   └── bedrock-irsa.tf       # IAM role + policy (legacy — not used for LLM auth)
 ├── Dockerfile                # Multi-stage, non-root, python:3.12-slim
 ├── requirements.txt
 ├── .env.example
@@ -67,18 +72,17 @@ ai-observability-agent/
 
 ## Prerequisites
 
-- AWS EKS cluster `cityaura` (us-east-1)
+- AWS EKS cluster `cityaura` (us-east-1) with monitoring namespace
 - Monitoring stack deployed: kube-prometheus, Loki, Tempo, Fluent Bit
-- ECR repository for the image
-- **Amazon Bedrock access** with Claude (`anthropic.claude-sonnet-4-20250514-v1:0`) enabled in `eu-west-2`
-- **IRSA configured** on the EKS cluster (requires an OIDC provider — enabled by default on EKS)
+- ECR repository: `ai-observability-agent`
+- **Anthropic API key** — the agent calls Claude directly via `anthropic` SDK
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` to `.env`
-for local development.
+All configuration is via environment variables. Non-sensitive values come from
+the ConfigMap; secrets come from the Kubernetes Secret.
 
 | Variable | Default (in-cluster) | Description |
 |---|---|---|
@@ -86,125 +90,84 @@ for local development.
 | `LOKI_URL` | `http://loki.monitoring.svc:3100` | Loki endpoint |
 | `TEMPO_URL` | `http://tempo.monitoring.svc:3200` | Tempo endpoint |
 | `GRAFANA_URL` | `http://kube-prometheus-grafana.monitoring.svc` | Grafana endpoint |
-| `AWS_REGION` | `eu-west-2` | AWS region for Bedrock |
-| `BEDROCK_MODEL_ID` | `anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID |
+| `AWS_REGION` | `us-east-1` | AWS region (used by SNS/SES outputs) |
+| `ANTHROPIC_API_KEY` | *(from secret)* | Anthropic API key |
+| `ANTHROPIC_MODEL_ID` | `claude-haiku-4-5-20251001` | Claude model ID |
 | `LLM_MAX_TOKENS` | `1024` | Max response tokens |
 | `GRAFANA_USER` | `admin` | Grafana username |
 | `GRAFANA_PASSWORD` | *(from secret)* | Grafana password for annotations |
 | `GRAFANA_API_KEY` | *(optional)* | Grafana API key (preferred over password) |
 | `SLACK_WEBHOOK_URL` | *(optional)* | Slack incoming webhook URL |
+| `SNS_PHONE_NUMBER` | *(optional)* | E.164 phone number for SMS alerts, e.g. `+15551234567` |
 | `QUERY_LOOKBACK_MINUTES` | `5` | Lookback window for all queries |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `DRY_RUN` | `false` | Print output only; skip Slack + Grafana posts |
+| `DRY_RUN` | `false` | Print output only; skip all external posts |
 | `HTTP_TIMEOUT` | `10` | Per-request HTTP timeout (seconds) |
 
 ---
 
 ## Build & Deploy
 
-### 1. Add the ECR repository (if not already present)
-
-Add to `eks-ngf-gateway/ecr.tf`:
-
-```hcl
-resource "aws_ecr_repository" "ai_observability_agent" {
-  name                 = "ai-observability-agent"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-output "ai_observability_agent_ecr_url" {
-  value = aws_ecr_repository.ai_observability_agent.repository_url
-}
-```
-
-Then: `terraform apply`
-
-### 2. Enable Claude model access in Bedrock
-
-In the [Amazon Bedrock console](https://eu-west-2.console.aws.amazon.com/bedrock/home?region=eu-west-2#/modelaccess),
-request access to:
-- **Anthropic Claude Sonnet 4** (`anthropic.claude-sonnet-4-20250514-v1:0`) in `eu-west-2`
-
-Model access is per-region; approval is usually instant.
-
-### 3. Create the IRSA role
-
-```bash
-# From eks-ngf-gateway/ (or wherever your main Terraform lives)
-# Pass OIDC values from your EKS cluster:
-terraform apply \
-  -var="oidc_provider_arn=$(aws eks describe-cluster --name cityaura \
-    --query 'cluster.identity.oidc.issuer' --output text \
-    | sed 's|https://||' \
-    | xargs -I{} aws iam list-open-id-connect-providers \
-    --query 'OpenIDConnectProviderList[?contains(Arn,`{}`)] | [0].Arn' \
-    --output text)" \
-  -var="oidc_provider=$(aws eks describe-cluster --name cityaura \
-    --query 'cluster.identity.oidc.issuer' --output text | sed 's|https://||')"
-```
-
-### 4. Build and push the image
+### 1. Build and push the image
 
 ```bash
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export REGION=us-east-1
-export IMAGE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ai-observability-agent:v1"
+export IMAGE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/ai-observability-agent:v2"
 
-# Authenticate Docker to ECR
 aws ecr get-login-password --region $REGION \
   | docker login --username AWS --password-stdin \
     "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-# Build for EKS (linux/amd64 even on Apple Silicon)
-docker buildx build \
-  --platform linux/amd64 \
-  -t "${IMAGE}" \
-  --push \
-  .
+docker build -t "${IMAGE}" .
+docker push "${IMAGE}"
 ```
 
-### 5. Apply the ServiceAccount and Kubernetes Secret
+### 2. Apply the ServiceAccount
 
 ```bash
-# Update serviceaccount.yaml with your account ID, then apply
 kubectl apply -f k8s/serviceaccount.yaml
+```
 
-# Create the secret for Grafana/Slack (no API key needed for Bedrock)
+### 3. Create the Kubernetes secret
+
+```bash
 GRAFANA_PWD=$(aws secretsmanager get-secret-value \
   --secret-id eks/cityaura/grafana-admin \
   --query SecretString --output text | jq -r .password)
 
 kubectl create secret generic ai-observability-agent-secrets \
   --namespace monitoring \
+  --from-literal=ANTHROPIC_API_KEY=<your-anthropic-api-key> \
   --from-literal=GRAFANA_PASSWORD="${GRAFANA_PWD}" \
   --from-literal=SLACK_WEBHOOK_URL="" \
   --from-literal=GRAFANA_API_KEY="" \
+  --from-literal=SNS_PHONE_NUMBER="" \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### 6. Deploy the ConfigMap and CronJob
+### 4. Deploy the ConfigMap and CronJob
 
 ```bash
 kubectl apply -f k8s/configmap.yaml
 kubectl apply -f k8s/cronjob.yaml
 ```
 
-### 6. Verify
+### 5. Verify
 
 ```bash
-# Check the CronJob
+# Check the CronJob is scheduled
 kubectl get cronjob -n monitoring ai-observability-agent
 
-# Trigger a manual run
-kubectl create job --from=cronjob/ai-observability-agent \
-  ai-observability-agent-manual -n monitoring
+# Trigger a manual run immediately
+kubectl create job ai-agent-manual \
+  --from=cronjob/ai-observability-agent -n monitoring
 
-# Watch the pod logs (JSON structured)
-kubectl logs -n monitoring -l job-name=ai-observability-agent-manual -f
+# Watch the pod logs
+kubectl logs -n monitoring -l job-name=ai-agent-manual -f
+
+# Watch scheduled runs
+kubectl get jobs -n monitoring -w
 ```
 
 ---
@@ -217,16 +180,15 @@ pip install -r requirements.txt
 
 # Copy and edit config
 cp .env.example .env
-# Set AWS_REGION / AWS_PROFILE and point URLs at port-forwarded services
-# boto3 picks up credentials from env vars, ~/.aws/credentials, or SSO automatically
+# Set ANTHROPIC_API_KEY and point URLs at port-forwarded services
 
-# Port-forward Prometheus, Loki, Tempo, Grafana
+# Port-forward the monitoring stack
 kubectl port-forward -n monitoring svc/kube-prometheus-kube-prome-prometheus 9090:9090 &
 kubectl port-forward -n monitoring svc/loki 3100:3100 &
 kubectl port-forward -n monitoring svc/tempo 3200:3200 &
 kubectl port-forward -n monitoring svc/kube-prometheus-grafana 3000:80 &
 
-# Dry-run (no side effects — prints formatted terminal output)
+# Dry-run — prints formatted output, no external calls
 python -m src.main --dry-run
 
 # Normal run
@@ -237,7 +199,12 @@ python -m src.main
 
 ## Outputs
 
-### Slack Block Kit message
+### Grafana annotation
+
+A vertical line appears on all dashboards tagged `["ai-agent", "<severity>", "anomaly"]`
+with the analysis summary as tooltip text.
+
+### Slack Block Kit message (if `SLACK_WEBHOOK_URL` is set)
 
 ```
 🔴 CRITICAL — AI Observability Report
@@ -247,7 +214,6 @@ Summary: dtx-app-broken memory usage reached 420MB (3× baseline)...
   🔴 [CRITICAL] Memory leak worsening: 420MB vs 150MB baseline
      Evidence: container_memory_usage_bytes{pod="dtx-app-broken-xxx"} = 440200192
   🟡 [WARNING]  Error rate elevated: 48% vs 35% baseline
-     ...
 
 🔗 Correlations:
   • Memory growth correlates with OOMKill pod restarts
@@ -256,27 +222,25 @@ Summary: dtx-app-broken memory usage reached 420MB (3× baseline)...
 ✅ Recommendations:
   1. 🚨 [IMMEDIATE] kubectl rollout restart deployment/dtx-app-broken
   2. ⚠️  [SHORT_TERM] Set memory limit of 200Mi to trigger OOMKill sooner
-  ...
 
 dtx-app (healthy): Operating within expected parameters (<1% error rate, ~82MB memory)
 
-📊 Grafana | 🕐 2026-04-25 14:35 UTC | AI Observability Agent
+📊 Grafana | 🕐 2026-04-27 09:00 UTC | AI Observability Agent
 ```
 
-### Grafana annotation
+### SMS (if `SNS_PHONE_NUMBER` is set)
 
-A vertical line appears on all dashboards with tags `["ai-agent", "critical", "anomaly"]`
-and the analysis summary as tooltip text.
+A concise single-message summary is sent via AWS SNS to the configured E.164 number.
 
 ---
 
 ## Severity semantics
 
-| Severity | Meaning | Exit code |
+| Severity | Meaning | CronJob exit code |
 |---|---|---|
-| `CRITICAL` | One or more signals significantly exceed known-bad baselines | `1` |
-| `WARNING` | Signals are trending bad but within expected ranges | `0` |
+| `CRITICAL` | One or more signals significantly exceed known-bad baselines | `1` (registers failure) |
+| `WARNING` | Signals trending bad but within expected ranges | `0` |
 | `INFO` | All signals nominal | `0` |
 
-The CronJob only registers a failure (triggering Kubernetes backoff / alerting)
-when the agent exits `1` — i.e., only on `CRITICAL` findings.
+The CronJob only registers a failure when the agent exits `1` — i.e., only on
+`CRITICAL` findings. This can trigger Kubernetes backoff and alerting.

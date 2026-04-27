@@ -1,7 +1,7 @@
 """Central configuration sourced from environment variables.
 
-In Kubernetes, non-sensitive values come from a ConfigMap. There are no
-secret API keys — the agent authenticates to Bedrock via IRSA.
+In Kubernetes, non-sensitive values come from a ConfigMap and secrets
+(ANTHROPIC_API_KEY, GRAFANA_PASSWORD, etc.) come from a Kubernetes Secret.
 """
 
 from __future__ import annotations
