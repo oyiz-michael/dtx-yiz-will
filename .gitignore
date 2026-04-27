@@ -33,3 +33,6 @@ override.tf.json
 # IDE
 .vscode/
 .idea/
+
+# Claude Code
+.claude/
